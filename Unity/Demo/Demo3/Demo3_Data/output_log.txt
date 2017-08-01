@@ -1,0 +1,46 @@
+Initialize engine version: 5.6.1f1 (2860b30f0b54)
+GfxDevice: creating device client; threaded=1
+Direct3D:
+    Version:  Direct3D 11.0 [level 11.0]
+    Renderer: NVIDIA GeForce GTX 960M (ID=0x139b)
+    Vendor:   NVIDIA
+    VRAM:     3072 MB
+    Driver:   21.21.13.7667
+Begin MonoManager ReloadAssembly
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.dll (this message is harmless)
+Loading F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.dll into Unity Child Domain
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\Assembly-CSharp-firstpass.dll (this message is harmless)
+Loading F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\Assembly-CSharp-firstpass.dll into Unity Child Domain
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\Assembly-CSharp.dll (this message is harmless)
+Loading F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\Assembly-CSharp.dll into Unity Child Domain
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.UI.dll (this message is harmless)
+Loading F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.UI.dll into Unity Child Domain
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.Networking.dll (this message is harmless)
+Loading F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.Networking.dll into Unity Child Domain
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.Analytics.dll (this message is harmless)
+Loading F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\UnityEngine.Analytics.dll into Unity Child Domain
+- Completed reload, in  0.022 seconds
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\System.Core.dll (this message is harmless)
+Platform assembly: F:\Unity_workplace\Demo\Demo3\Demo3_Data\Managed\System.dll (this message is harmless)
+desktop: 1920x1080 60Hz; virtual: 1920x1080 at 0,0
+<RI> Initializing input.
+<RI> Input initialized.
+<RI> Initialized touch support.
+UnloadTime: 3.831705 ms
+Setting up 4 worker threads for Enlighten.
+  Thread -> id: 5274 -> priority: 1 
+  Thread -> id: 5278 -> priority: 1 
+  Thread -> id: 527c -> priority: 1 
+  Thread -> id: 5280 -> priority: 1 
+Unloading 5 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 3.222914 ms
+
+Unloading 21 unused Assets to reduce memory usage. Loaded Objects now: 2316.
+Total: 4.791705 ms (FindLiveObjects: 0.124049 ms CreateObjectMapping: 0.047802 ms MarkObjects: 0.597728 ms  DeleteObjects: 4.020544 ms)
+
+Unloading 3 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 7.665780 ms
+
+Unloading 460 unused Assets to reduce memory usage. Loaded Objects now: 927.
+Total: 4.977384 ms (FindLiveObjects: 0.105086 ms CreateObjectMapping: 0.050172 ms MarkObjects: 0.319605 ms  DeleteObjects: 4.502125 ms)
+
