@@ -79,6 +79,7 @@ class MenuScene(Scene):
         instructions = [
             "Press SPACE to start game",
             "Press V for voice recognition", 
+            "Press T for text simulation",
             "Keyboard: 1-Fire 2-Ice 3-Heal 4-Start 5-Menu",
             "Press ESC to exit"
         ]
@@ -119,13 +120,17 @@ class GameScene(Scene):
         command_lower = command.lower()
         
         # 魔法咒语
-        if "火球" in command_lower or "fireball" in command_lower:
+        if command_lower == "fire":
             self.cast_fireball()
-        elif "冰冻" in command_lower or "freeze" in command_lower:
+        elif command_lower == "ice":
             self.cast_freeze()
-        elif "治愈" in command_lower or "heal" in command_lower:
+        elif command_lower == "heal":
             self.cast_heal()
-        elif "菜单" in command_lower or "menu" in command_lower:
+        elif command_lower == "lightning":
+            self.cast_lightning()
+        elif command_lower == "shield":
+            self.cast_shield()
+        elif command_lower == "menu":
             self.game.set_scene("menu")
     
     def cast_fireball(self):
@@ -163,6 +168,30 @@ class GameScene(Scene):
         }
         self.magic_effects.append(effect)
         print("释放治愈术!")
+    
+    def cast_lightning(self):
+        """释放闪电术"""
+        effect = {
+            'type': 'lightning',
+            'pos': self.player_pos.copy(),
+            'color': (255, 255, 0),
+            'radius': 35,
+            'lifetime': 0.8
+        }
+        self.magic_effects.append(effect)
+        print("释放闪电术!")
+    
+    def cast_shield(self):
+        """释放护盾术"""
+        effect = {
+            'type': 'shield',
+            'pos': self.player_pos.copy(),
+            'color': (0, 200, 255),
+            'radius': 40,
+            'lifetime': 3.0
+        }
+        self.magic_effects.append(effect)
+        print("释放护盾术!")
     
     def update(self, dt: float):
         # 玩家移动
@@ -207,8 +236,9 @@ class GameScene(Scene):
         # 说明文字
         instructions = [
             "WASD to move",
-            "Voice spells: Fire/Ice/Heal", 
+            "Voice spells: Fire/Ice/Heal/Lightning/Shield", 
             "Keyboard: 1-Fire 2-Ice 3-Heal",
+            "Press T for text simulation",
             "Press M for menu"
         ]
         

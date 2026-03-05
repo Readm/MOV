@@ -1,0 +1,45 @@
+Magic Of Voice - 音频调试报告
+==================================================
+生成时间: 2025-07-16 13:18:29.964148
+
+[13:18:29] INFO: 开始音频系统调试...
+[13:18:29] INFO: === 系统信息检查 ===
+[13:18:29] INFO: 操作系统: Linux 5.15.167.4-microsoft-standard-WSL2
+[13:18:29] INFO: Python版本: 3.12.3 (main, Jun 18 2025, 17:59:45) [GCC 13.3.0]
+[13:18:29] INFO: 当前用户: readm
+[13:18:29] WARNING: 检测到WSL环境
+[13:18:29] INFO: WSL版本信息: Linux version 5.15.167.4-microsoft-standard-WSL2 (root@f9c826d3017f) (gcc (GCC) 11.2.0, GNU ld (GNU Binutils) 2.37) #1 SMP Tue Nov 5 00:21:55 UTC 2024
+[13:18:29] INFO: === 音频包检查 ===
+[13:18:29] INFO: ✅ alsa-utils: 已安装
+[13:18:29] WARNING: ❌ pulseaudio: 未安装
+[13:18:29] WARNING: ❌ portaudio19-dev: 未安装
+[13:18:29] WARNING: ❌ python3-pyaudio: 未安装
+[13:18:29] WARNING: ❌ libasound2-dev: 未安装
+[13:18:29] INFO: === 音频设备检查 ===
+[13:18:29] ERROR: 检查ALSA播放设备失败: [Errno 2] No such file or directory: 'aplay'
+[13:18:29] ERROR: 检查ALSA录音设备失败: [Errno 2] No such file or directory: 'arecord'
+[13:18:29] INFO: === PulseAudio检查 ===
+[13:18:29] ERROR: 检查PulseAudio状态失败: [Errno 2] No such file or directory: 'pulseaudio'
+[13:18:29] ERROR: 检查PulseAudio输入设备失败: [Errno 2] No such file or directory: 'pactl'
+[13:18:29] INFO: === 权限检查 ===
+[13:18:29] INFO: 用户组: readm adm cdrom sudo dip plugdev users
+[13:18:29] WARNING: ❌ 用户不在 audio 组中
+[13:18:29] WARNING: ❌ 用户不在 pulse-access 组中
+[13:18:29] WARNING: ❌ /dev/snd/ 不存在
+[13:18:29] WARNING: ❌ /dev/dsp 不存在
+[13:18:29] WARNING: ❌ /dev/audio 不存在
+[13:18:29] INFO: === Python音频库测试 ===
+[13:18:29] WARNING: ❌ PyAudio未安装
+[13:18:29] WARNING: ❌ SpeechRecognition未安装
+[13:18:29] INFO: === 音频录制测试 ===
+[13:18:29] INFO: 测试arecord录制...
+[13:18:29] ERROR: arecord录制测试失败: [Errno 2] No such file or directory: 'arecord'
+[13:18:29] INFO: === 调试完成 ===
+[13:18:29] INFO: === 问题排查建议 ===
+[13:18:29] INFO: 🔧 WSL环境建议:
+[13:18:29] INFO:    - WSL2通常没有音频支持
+[13:18:29] INFO:    - 考虑使用Windows宿主机的音频API
+[13:18:29] INFO:    - 或使用基于文本的语音模拟模式
+[13:18:29] INFO: 🔧 缺少音频包，建议安装:
+[13:18:29] INFO:    sudo apt update
+[13:18:29] INFO:    sudo apt install alsa-utils pulseaudio portaudio19-dev

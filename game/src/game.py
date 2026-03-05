@@ -2,7 +2,7 @@ import pygame
 import sys
 from typing import Dict, Any
 from scenes import Scene, MenuScene, GameScene
-from voice_recognition import VoiceRecognition
+from enhanced_voice_recognition import create_voice_recognition
 
 class Game:
     def __init__(self):
@@ -24,7 +24,7 @@ class Game:
         self.current_scene = None
         
         # 语音识别
-        self.voice_recognition = VoiceRecognition()
+        self.voice_recognition = create_voice_recognition()
         
         # 游戏状态
         self.running = True
@@ -59,6 +59,13 @@ class Game:
                 # 键盘模拟语音命令 (1-5键)
                 elif event.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5]:
                     self.voice_recognition.handle_key_test(event.key)
+                # T键激活文本输入模拟语音
+                elif event.key == pygame.K_t:
+                    self._handle_text_input_simulation()
+            elif event.type == pygame.TEXTINPUT:
+                # 处理文本输入
+                if hasattr(self.voice_recognition, 'handle_text_input'):
+                    self.voice_recognition.handle_text_input(event.text)
             
             # 传递事件给当前场景
             if self.current_scene:
@@ -93,6 +100,20 @@ class Game:
             self.handle_events()
             self.update(dt)
             self.render()
+    
+    def _handle_text_input_simulation(self):
+        """处理文本输入模拟语音"""
+        print("\n=== 语音模拟模式 ===")
+        print("请输入语音命令 (fire/ice/heal/start/menu):")
+        
+        # 模拟一些常用命令
+        test_commands = ["fire", "ice", "heal", "start", "menu"]
+        for i, cmd in enumerate(test_commands, 1):
+            print(f"{i}. {cmd}")
+        
+        # 这里可以扩展为实际的文本输入界面
+        if hasattr(self.voice_recognition, 'simulate_voice_input'):
+            self.voice_recognition.simulate_voice_input("fire")  # 默认演示
     
     def quit(self):
         """退出游戏"""

@@ -7,16 +7,16 @@ Magic Of Voice — 用声音施法的像素风战斗游戏
 
 **环境要求：** Python 3.x，Chrome 浏览器（语音识别需要）
 
+**在线游玩（无需安装）：**
+https://readm.github.io/MOV/
+
+**本地运行：**
 ```bash
-# 克隆仓库
 git clone https://github.com/Readm/MOV.git
 cd MOV
-
-# 启动本地服务器（Web Speech API 需要 localhost）
-python demo/serve.py
+python docs/serve.py
 ```
-
-然后在 **Chrome** 中打开 `http://localhost:8080`，允许麦克风权限即可开始游戏。
+然后在 Chrome 中打开 `http://localhost:8080`，允许麦克风权限即可。
 
 ### 操作说明
 
@@ -46,10 +46,10 @@ python demo/serve.py
 
 ```
 MOV/
-├── demo/              # 可直接运行的 HTML5 游戏 Demo
+├── docs/              # GitHub Pages 部署目录（HTML5 游戏 Demo）
 │   ├── index.html     # 游戏主体
 │   ├── sprites.js     # 像素风精灵系统
-│   └── serve.py       # 本地服务器
+│   └── serve.py       # 本地服务器（仅本地开发用）
 ├── cocos/             # Cocos Creator 3.x 项目骨架（TypeScript）
 │   └── assets/scripts/
 │       ├── voice/     # 语音引擎（Web / 微信小游戏双平台）
