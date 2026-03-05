@@ -1,0 +1,9 @@
+{
+  "name": "magic-of-voice",
+  "version": "0.1.0",
+  "description": "Magic Of Voice - Voice-controlled pixel battle game",
+  "main": "",
+  "engines": {
+    "cocos": "3.8.0"
+  }
+}

@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>MOV - Magic Of Voice Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; color: #fff; }
+    #wrapper { position: relative; }
+    canvas { display: block; image-rendering: pixelated; border: 2px solid #333; }
+
+    /* 施法遮罩 */
+    #cast-overlay {
+      display: none; position: absolute; inset: 0;
+      background: rgba(0,0,30,0.55);
+      align-items: center; justify-content: center; flex-direction: column;
+      pointer-events: none;
+    }
+    #cast-overlay.active { display: flex; }
+    #cast-overlay .listen-text { font-size: 22px; color: #aaddff; letter-spacing: 4px; animation: pulse 0.8s infinite; }
+    #cast-overlay .syllables-text { margin-top: 12px; font-size: 16px; color: #88aacc; min-height: 24px; }
+
+    /* 咒语浮现 */
+    #spell-popup {
+      display: none; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 32px; font-weight: bold; letter-spacing: 6px;
+      text-shadow: 0 0 20px currentColor;
+      pointer-events: none;
+      animation: spellAnim 1.8s forwards;
+    }
+
+    /* 发现提示 */
+    #discovery {
+      display: none; position: absolute; top: 20px; right: 16px;
+      background: rgba(255,220,0,0.15); border: 1px solid #ffd700;
+      padding: 6px 12px; font-size: 13px; color: #ffd700;
+      border-radius: 4px;
+    }
+
+    /* 底部说明 */
+    #help { margin-top: 10px; font-size: 12px; color: #555; text-align: center; line-height: 1.8; }
+    #help span { color: #888; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    @keyframes spellAnim {
+      0%   { opacity:0; transform:translate(-50%,-50%) scale(0.6); }
+      20%  { opacity:1; transform:translate(-50%,-50%) scale(1.1); }
+      60%  { opacity:1; transform:translate(-50%,-50%) scale(1.0); }
+      100% { opacity:0; transform:translate(-50%,-60%) scale(1.0); }
+    }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <canvas id="game" width="800" height="560"></canvas>
+  <div id="cast-overlay">
+    <div class="listen-text">&#127908; 正在聆听...</div>
+    <div class="syllables-text" id="syllables-display"></div>
+  </div>
+  <div id="spell-popup"></div>
+  <div id="discovery"></div>
+</div>
+<div id="help">
+  <span>WASD</span> 移动 &nbsp;|&nbsp; <span>空格</span> 时停施法（消耗专注值）&nbsp;|&nbsp; <span>鼠标</span> 瞄准方向
+  <br>无麦克风？施法时直接用键盘输入音节，回车确认 &nbsp;|&nbsp; 示例音节：<span>a ka da</span>（强火弹）
+</div>
+
+<script src="sprites.js"></script>
+<script>
+// ─────────────────────────────────────────────
+// 常量与数据
+// ─────────────────────────────────────────────
+const SYLLABLE_MAP = {
+  'a':'fire','ah':'fire','i':'ice','ee':'ice',
+  'u':'thunder','oo':'thunder','e':'earth','eh':'earth',
+  'ka':'bolt','ta':'bolt','bo':'burst','po':'burst',
+  'shi':'shield','si':'shield','ra':'blade','la':'blade',
+  'yu':'zone','wu':'zone','mi':'heal','ni':'heal',
+  'da':'power','ga':'power','re':'chain','le':'chain',
+  'su':'pierce','fu':'pierce','chi':'delay','zi':'delay',
+  'sa':'scatter','ha':'scatter','to':'track','do':'track',
+};
+
+const ELEMENT_COLOR = { fire:'#ff5500', ice:'#44ccff', thunder:'#ffee22', earth:'#cc9944' };
+const ELEMENT_LABEL = { fire:'火', ice:'冰', thunder:'雷', earth:'土' };
+const FORM_LABEL    = { bolt:'弹', burst:'爆', shield:'盾', blade:'刃', zone:'域', heal:'愈' };
+const MODIFIER_LABEL= { power:'强', chain:'连', pierce:'穿', delay:'迟', scatter:'散', track:'追' };
+
+const ELEMENTS  = ['fire','ice','thunder','earth'];
+const FORMS     = ['bolt','burst','shield','blade','zone','heal'];
+const MODIFIERS = ['power','chain','pierce','delay','scatter','track'];
+
+function isElement(s){ return ELEMENTS.includes(s); }
+function isForm(s)   { return FORMS.includes(s); }
+function isModifier(s){ return MODIFIERS.includes(s); }
+
+// ─────────────────────────────────────────────
+// 音节解析
+// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 声学特征推断（兜底：任何声音都能产生技能）
+// ─────────────────────────────────────────────
+
+/** 拉丁文本：主导元音→元素，首辅音→形态 */
+function inferFromAcoustics(word) {
+  const w = word.toLowerCase();
+  // 主导元音 → 元素
+  const vowelMap = { a:'fire', i:'ice', u:'thunder', e:'earth', o:'earth' };
+  const counts = {};
+  for (const c of w) if (vowelMap[c]) counts[c] = (counts[c]||0) + 1;
+  const dominant = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0] || null;
+  const element = dominant ? vowelMap[dominant] : 'fire';
+  // 首辅音 → 形态
+  const first = w[0] || '';
+  let form = null;
+  if ('bpdtgk'.includes(first))      form = w.length <= 2 ? 'bolt' : 'burst';
+  else if ('sfzhx'.includes(first))  form = 'zone';
+  else if ('rl'.includes(first))     form = 'blade';
+  else if ('mn'.includes(first))     form = 'heal';
+  // 元音开头 → form=null（纯元素音节，不强加形态）
+  return { element, form };
+}
+
+/** 非ASCII（汉字等）：用字符编码哈希确定性推断 */
+function inferFromHash(word) {
+  let hash = 0;
+  for (let i = 0; i < word.length; i++) hash = (hash * 31 + word.charCodeAt(i)) & 0x7fffffff;
+  const element = ELEMENTS[hash % ELEMENTS.length];
+  const fi = (hash >> 4) % (FORMS.length + 1);
+  const form = fi < FORMS.length ? FORMS[fi] : null;
+  return { element, form };
+}
+
+function parseSyllables(raw) {
+  // 保留拉丁字母和CJK字符，按空白/标点分词，最多取3个
+  return raw.toLowerCase()
+    .split(/[\s,，。！？、]+/)
+    .map(t => t.replace(/[^a-z\u4e00-\u9fa5]/g, ''))
+    .filter(t => t.length > 0)
+    .slice(0, 3);
+}
+
+function buildSpell(tokens) {
+  if (!tokens.length) return null;
+  let element = null, form = null, modifier = null;
+  let anyInferred = false;
+
+  for (const token of tokens) {
+    const exact = SYLLABLE_MAP[token];
+    if (exact) {
+      if (isElement(exact) && !element)   element  = exact;
+      else if (isForm(exact) && !form)    form     = exact;
+      else if (isModifier(exact) && !modifier) modifier = exact;
+    } else {
+      // 声学兜底：保证每个词都有贡献
+      anyInferred = true;
+      const inferred = /^[a-z]+$/.test(token) ? inferFromAcoustics(token) : inferFromHash(token);
+      if (!element)          element = inferred.element;
+      if (!form && inferred.form) form = inferred.form;
+    }
+  }
+
+  // 最终兜底：仍无元素则对第一个 token 哈希
+  if (!element) { element = inferFromHash(tokens[0]).element; anyInferred = true; }
+
+  const level = modifier ? 3 : form ? 2 : 1;
+  const label = (modifier ? MODIFIER_LABEL[modifier] : '') +
+                ELEMENT_LABEL[element] +
+                (form ? FORM_LABEL[form] : '');
+  return { element, form, modifier, level, label, anyInferred };
+}
+
+// ─────────────────────────────────────────────
+// 工具函数
+// ─────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function normalize(v) {
+  const d = Math.hypot(v.x, v.y) || 1;
+  return { x: v.x / d, y: v.y / d };
+}
+function randRange(min, max) { return min + Math.random() * (max - min); }
+
+// ─────────────────────────────────────────────
+// 专注值系统
+// ─────────────────────────────────────────────
+class FocusSystem {
+  constructor(max = 5, regenSec = 2.5) {
+    this.max = max;
+    this.current = max;
+    this.regenSec = regenSec;
+    this.timer = 0;
+  }
+  consume(n = 1) {
+    if (this.current < n) return false;
+    this.current -= n;
+    this.timer = 0;
+    return true;
+  }
+  update(dt) {
+    if (this.current < this.max) {
+      this.timer += dt;
+      if (this.timer >= this.regenSec) {
+        this.current = Math.min(this.max, this.current + 1);
+        this.timer = 0;
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// 投射物
+// ─────────────────────────────────────────────
+class Projectile {
+  constructor(x, y, dir, spell, owner) {
+    this.x = x; this.y = y;
+    this.dir = normalize(dir);
+    this.spell = spell;
+    this.owner = owner; // 'player' | 'enemy'
+    this.color = ELEMENT_COLOR[spell.element] || '#fff';
+    this.radius = spell.level === 3 ? 8 : spell.level === 2 ? 6 : 4;
+    this.speed = spell.modifier === 'track' ? 90 : 260;
+    this.pierce = spell.modifier === 'pierce';
+    this.scatter = spell.modifier === 'scatter';
+    this.track = spell.modifier === 'track';
+    this.chain = spell.modifier === 'chain';
+    this.chainCount = spell.modifier === 'chain' ? 2 : 0;
+    this.power = spell.modifier === 'power' ? 1.5 : 1.0;
+    this.alive = true;
+    this.age = 0;
+    this.maxAge = 4;
+    // 基础伤害
+    this.damage = spell.level * 12 * this.power;
+  }
+  update(dt, targets) {
+    if (!this.alive) return;
+    this.age += dt;
+    if (this.age > this.maxAge) { this.alive = false; return; }
+
+    // 追踪
+    if (this.track && targets.length) {
+      let nearest = targets.reduce((a,b) => dist(this,a) < dist(this,b) ? a : b);
+      const td = normalize({ x: nearest.x - this.x, y: nearest.y - this.y });
+      this.dir.x = lerp(this.dir.x, td.x, 3 * dt);
+      this.dir.y = lerp(this.dir.y, td.y, 3 * dt);
+      const d = Math.hypot(this.dir.x, this.dir.y) || 1;
+      this.dir.x /= d; this.dir.y /= d;
+    }
+
+    this.x += this.dir.x * this.speed * dt;
+    this.y += this.dir.y * this.speed * dt;
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// 区域效果
+class ZoneEffect {
+  constructor(x, y, spell) {
+    this.x = x; this.y = y;
+    this.spell = spell;
+    this.color = ELEMENT_COLOR[spell.element];
+    this.radius = spell.level * 30 + 20;
+    this.duration = 3;
+    this.timer = 0;
+    this.tickTimer = 0;
+    this.tickInterval = 0.5;
+    this.damage = spell.level * 6;
+    this.alive = true;
+  }
+  update(dt) {
+    this.timer += dt;
+    this.tickTimer += dt;
+    if (this.timer >= this.duration) this.alive = false;
+  }
+  draw(ctx) {
+    const alpha = 0.25 * (1 - this.timer / this.duration);
+    ctx.save();
+    ctx.globalAlpha = alpha + 0.1;
+    ctx.strokeStyle = this.color;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// 爆炸效果
+class BurstEffect {
+  constructor(x, y, spell) {
+    this.x = x; this.y = y;
+    this.spell = spell;
+    this.color = ELEMENT_COLOR[spell.element];
+    this.maxRadius = spell.level * 50 + 30;
+    this.radius = 0;
+    this.duration = 0.4;
+    this.timer = 0;
+    this.damage = spell.level * 20;
+    this.alive = true;
+    this.hit = false;
+  }
+  update(dt) {
+    this.timer += dt;
+    this.radius = (this.timer / this.duration) * this.maxRadius;
+    if (this.timer >= this.duration) this.alive = false;
+  }
+  draw(ctx) {
+    const alpha = 0.7 * (1 - this.timer / this.duration);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// 护盾
+class ShieldEffect {
+  constructor(owner, spell) {
+    this.owner = owner;
+    this.spell = spell;
+    this.color = ELEMENT_COLOR[spell.element];
+    this.duration = 4 + spell.level;
+    this.timer = 0;
+    this.hp = spell.level * 30;
+    this.alive = true;
+  }
+  update(dt) {
+    this.timer += dt;
+    if (this.timer >= this.duration || this.hp <= 0) this.alive = false;
+  }
+  draw(ctx) {
+    const alpha = 0.5 * (1 - this.timer / this.duration) + 0.1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = this.color;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 16;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(this.owner.x, this.owner.y, 22, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  absorb(dmg) {
+    if (!this.alive) return dmg;
+    this.hp -= dmg;
+    return 0;
+  }
+}
+
+// ─────────────────────────────────────────────
+// 伤害数字
+// ─────────────────────────────────────────────
+class DamageNumber {
+  constructor(x, y, value, color) {
+    this.x = x; this.y = y;
+    this.vy = -60;
+    this.value = value;
+    this.color = color;
+    this.alpha = 1;
+    this.alive = true;
+  }
+  update(dt) {
+    this.y += this.vy * dt;
+    this.alpha -= dt * 1.2;
+    if (this.alpha <= 0) { this.alpha = 0; this.alive = false; }
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.fillStyle = this.color;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(this.value), this.x, this.y);
+    ctx.restore();
+  }
+}
+
+// 状态提示
+class StatusLabel {
+  constructor(x, y, text, color) {
+    this.x = x; this.y = y;
+    this.text = text; this.color = color;
+    this.alpha = 1; this.vy = -30;
+    this.alive = true; this.age = 0;
+  }
+  update(dt) {
+    this.age += dt; this.y += this.vy * dt;
+    if (this.age > 1.5) { this.alpha -= dt * 2; }
+    if (this.alpha <= 0) this.alive = false;
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.fillStyle = this.color;
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.text, this.x, this.y);
+    ctx.restore();
+  }
+}
+
+// ─────────────────────────────────────────────
+// 玩家
+// ─────────────────────────────────────────────
+class Player {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.w = 16; this.h = 16;
+    this.speed = 160;
+    this.maxHp = 100; this.hp = 100;
+    this.maxSp = 60;  this.sp = 60;
+    this.shield = null;
+    this.blinkTimer = 0;
+    this.invincible = 0;
+    this.dx = 0; this.dy = 0;
+  }
+  update(dt, keys, bounds) {
+    this.dx = 0; this.dy = 0;
+    if (keys['KeyW'] || keys['ArrowUp'])    this.dy = -1;
+    if (keys['KeyS'] || keys['ArrowDown'])  this.dy =  1;
+    if (keys['KeyA'] || keys['ArrowLeft'])  this.dx = -1;
+    if (keys['KeyD'] || keys['ArrowRight']) this.dx =  1;
+    if (this.dx && this.dy) { this.dx *= 0.707; this.dy *= 0.707; }
+    this.x = Math.max(this.w/2, Math.min(bounds.w - this.w/2, this.x + this.dx * this.speed * dt));
+    this.y = Math.max(this.h/2 + 40, Math.min(bounds.h - this.h/2, this.y + this.dy * this.speed * dt));
+    if (this.invincible > 0) this.invincible -= dt;
+    if (this.blinkTimer > 0) this.blinkTimer -= dt;
+    if (this.shield) this.shield.update(dt);
+    if (this.shield && !this.shield.alive) this.shield = null;
+  }
+  takeDamage(dmg) {
+    if (this.invincible > 0) return 0;
+    if (this.shield) dmg = this.shield.absorb(dmg);
+    if (dmg > 0) {
+      this.hp -= dmg;
+      this.blinkTimer = 0.3;
+      this.invincible = 0.6;
+    }
+    return dmg;
+  }
+  draw(ctx, renderer, time) {
+    // 受击闪白
+    if (this.blinkTimer > 0 && Math.floor(this.blinkTimer * 12) % 2) {
+      renderer.draw(ctx, 'player_hit', this.x, this.y);
+      if (this.shield) this.shield.draw(ctx);
+      return;
+    }
+    // 步行动画：每0.3秒切帧，上下轻微浮动
+    const frame = Math.floor(time / 0.3) % 2;
+    const bob = (this.dx || this.dy) ? (frame === 0 ? -1 : 0) : 0;
+    const name = frame === 0 ? 'player' : 'player2';
+    renderer.draw(ctx, name, this.x, this.y + bob);
+    if (this.shield) this.shield.draw(ctx);
+  }
+}
+
+// ─────────────────────────────────────────────
+// 敌人
+// ─────────────────────────────────────────────
+const ENEMY_TYPES = {
+  goblin: {
+    label:'哥布林', color:'#ff6644', formWeakness:'bolt',
+    maxHp:40, speed:80, damage:8, windupTime:1.0, attackRange:30,
+    detectionRange:200, reward:15,
+  },
+  slime: {
+    label:'史莱姆', color:'#88ff44', formWeakness:'blade',
+    maxHp:70, speed:45, damage:12, windupTime:1.8, attackRange:25,
+    detectionRange:250, reward:20,
+  },
+  golem: {
+    label:'石像鬼', color:'#aa8855', formWeakness:'burst',
+    maxHp:120, speed:30, damage:20, windupTime:2.5, attackRange:40,
+    detectionRange:180, reward:35,
+  },
+};
+
+const STATUS_ICONS = { burn:'燃', freeze:'冻', paralyze:'麻', knockback:'' };
+const STATUS_DURATION = { burn:3, freeze:2, paralyze:1.5, knockback:0.4 };
+
+class Enemy {
+  constructor(type, x, y) {
+    const cfg = ENEMY_TYPES[type];
+    Object.assign(this, cfg);
+    this.type = type;
+    this.x = x; this.y = y;
+    this.w = 16; this.h = 16;
+    this.hp = cfg.maxHp;
+    this.state = 'idle'; // idle | chase | windup | attack | dead
+    this.windupTimer = 0;
+    this.statuses = {};   // { type: timeRemaining }
+    this.alive = true;
+    this.blinkTimer = 0;
+    this.projectiles = []; // enemy projectiles
+    this.wanderTimer = randRange(1, 3);
+    this.wanderDir = { x: randRange(-1,1), y: randRange(-1,1) };
+  }
+  update(dt, player) {
+    if (!this.alive) return;
+    // 更新状态效果
+    for (const k in this.statuses) {
+      this.statuses[k] -= dt;
+      if (this.statuses[k] <= 0) delete this.statuses[k];
+    }
+    if (this.blinkTimer > 0) this.blinkTimer -= dt;
+
+    const frozen = this.statuses.freeze > 0;
+    const paralyzed = this.statuses.paralyze > 0;
+    if (frozen || paralyzed) return;
+
+    const speedMult = this.statuses.burn ? 0.7 : 1;
+    const d = dist(this, player);
+
+    switch (this.state) {
+      case 'idle':
+        // 漫游
+        this.wanderTimer -= dt;
+        if (this.wanderTimer <= 0) {
+          this.wanderDir = normalize({ x: randRange(-1,1), y: randRange(-1,1) });
+          this.wanderTimer = randRange(1.5, 3);
+        }
+        this.x += this.wanderDir.x * this.speed * 0.3 * dt;
+        this.y += this.wanderDir.y * this.speed * 0.3 * dt;
+        if (d < this.detectionRange) this.state = 'chase';
+        break;
+      case 'chase':
+        if (d > this.detectionRange * 1.5) { this.state = 'idle'; break; }
+        if (d <= this.attackRange + 10) { this.startWindup(); break; }
+        const dir = normalize({ x: player.x - this.x, y: player.y - this.y });
+        this.x += dir.x * this.speed * speedMult * dt;
+        this.y += dir.y * this.speed * speedMult * dt;
+        break;
+      case 'windup':
+        this.windupTimer -= dt;
+        if (this.windupTimer <= 0) {
+          this.state = 'attack';
+          this.performAttack(player);
+        }
+        break;
+      case 'attack':
+        this.state = 'chase';
+        break;
+    }
+    this.x = Math.max(12, Math.min(788, this.x));
+    this.y = Math.max(52, Math.min(548, this.y));
+
+    // 更新敌人投射物
+    this.projectiles.forEach(p => p.update(dt, []));
+    this.projectiles = this.projectiles.filter(p => p.alive);
+  }
+  startWindup() {
+    if (this.state === 'windup') return;
+    this.state = 'windup';
+    this.windupTimer = this.windupTime;
+  }
+  interrupt() {
+    if (this.state === 'windup') {
+      this.state = 'chase';
+      this.windupTimer = 0;
+      return true;
+    }
+    return false;
+  }
+  performAttack(player) {
+    // 简单近战/投射物
+    const dir = normalize({ x: player.x - this.x, y: player.y - this.y });
+    const fakeSpell = { element: 'fire', form: 'bolt', modifier: null, level: 1 };
+    const p = new Projectile(this.x, this.y, dir, fakeSpell, 'enemy');
+    p.color = '#ff3300';
+    p.damage = this.damage;
+    p.speed = 180;
+    this.projectiles.push(p);
+  }
+  takeDamage(dmg, sourceForm, sourceElement) {
+    let finalDmg = dmg;
+    if (sourceForm && sourceForm === this.formWeakness) {
+      finalDmg *= 2;
+    }
+    this.hp -= finalDmg;
+    this.blinkTimer = 0.15;
+    // 元素状态
+    const statusMap = { fire:'burn', ice:'freeze', thunder:'paralyze', earth:'knockback' };
+    const status = statusMap[sourceElement];
+    if (status) this.statuses[status] = STATUS_DURATION[status];
+    if (this.hp <= 0) { this.hp = 0; this.alive = false; this.state = 'dead'; }
+    return finalDmg;
+  }
+  draw(ctx, renderer, time) {
+    if (!this.alive) return;
+
+    const spriteKey = this.type;
+    const spriteKey2 = this.type + '2';
+
+    // 受击闪白
+    if (this.blinkTimer > 0 && Math.floor(this.blinkTimer * 20) % 2) {
+      ctx.save();
+      if (this.state === 'windup') {
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 24;
+      }
+      renderer.draw(ctx, spriteKey + '_hit', this.x, this.y);
+      ctx.restore();
+    } else {
+      ctx.save();
+      // 前摇红光警示
+      if (this.state === 'windup') {
+        const t = this.windupTimer / this.windupTime;
+        ctx.shadowColor = '#ff2200';
+        ctx.shadowBlur = 28 * (1 - t) + 4;
+      }
+      // 冻结：蓝色叠加
+      if (this.statuses.freeze > 0) {
+        ctx.filter = 'hue-rotate(160deg) brightness(1.3)';
+      }
+      // 燃烧：橙色叠加光晕
+      if (this.statuses.burn > 0) {
+        ctx.shadowColor = '#ff6600';
+        ctx.shadowBlur = 10;
+      }
+      // 麻痹：黄色叠加
+      if (this.statuses.paralyze > 0) {
+        ctx.filter = 'hue-rotate(-30deg) brightness(1.5)';
+      }
+      // 动画帧
+      const moving = this.state === 'chase';
+      const frame = moving ? Math.floor(time / 0.35) % 2 : 0;
+      renderer.draw(ctx, frame === 0 ? spriteKey : spriteKey2, this.x, this.y);
+      ctx.restore();
+    }
+
+    // 弱点标志（敌人头上方小字）
+    ctx.save();
+    ctx.font = 'bold 9px monospace';
+    ctx.fillStyle = '#ffdd44';
+    ctx.textAlign = 'center';
+    ctx.fillText('弱:' + (FORM_LABEL[this.formWeakness] || '?'), this.x, this.y - 18);
+    // 状态图标
+    const statKeys = Object.keys(this.statuses);
+    statKeys.forEach((s, i) => {
+      ctx.fillStyle = s === 'freeze' ? '#44ccff' : s === 'burn' ? '#ff5500' : s === 'paralyze' ? '#ffee22' : '#aaa';
+      ctx.font = '9px monospace';
+      ctx.fillText(STATUS_ICONS[s] || s, this.x - 8 + i * 10, this.y + 22);
+    });
+    ctx.restore();
+
+    // HP 条
+    const barW = 32, barH = 4;
+    const bx = this.x - barW / 2, by = this.y - 22;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = this.hp / this.maxHp > 0.5 ? '#44ff44' : this.hp / this.maxHp > 0.25 ? '#ffaa00' : '#ff2222';
+    ctx.fillRect(bx, by, barW * this.hp / this.maxHp, barH);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, barW, barH);
+
+    // 敌人投射物
+    this.projectiles.forEach(p => p.draw(ctx));
+  }
+}
+
+// ─────────────────────────────────────────────
+// 语音识别
+// ─────────────────────────────────────────────
+class VoiceEngine {
+  constructor() {
+    this.onResult = null;
+    this.onError = null;
+    this.listening = false;
+    this.recognition = null;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      this.recognition = new SR();
+      this.recognition.lang = 'zh-CN';
+      this.recognition.interimResults = false;
+      this.recognition.maxAlternatives = 3;
+      this.recognition.onresult = (e) => {
+        let raw = '';
+        for (let i = 0; i < e.results[0].length; i++) {
+          raw += e.results[0][i].transcript + ' ';
+        }
+        this.listening = false;
+        this.onResult?.(raw.trim());
+      };
+      this.recognition.onerror = (e) => {
+        this.listening = false;
+        this.onError?.(e.error);
+      };
+      this.recognition.onend = () => { this.listening = false; };
+    }
+  }
+  start() {
+    if (!this.recognition) { this.onError?.('not supported'); return; }
+    if (this.listening) return;
+    this.listening = true;
+    try { this.recognition.start(); } catch(e) { this.listening = false; }
+  }
+  stop() {
+    if (this.recognition && this.listening) {
+      try { this.recognition.stop(); } catch(e) {}
+    }
+    this.listening = false;
+  }
+  isListening() { return this.listening; }
+  // 键盘输入模拟
+  simulateInput(text) {
+    this.listening = false;
+    this.onResult?.(text);
+  }
+}
+
+// ─────────────────────────────────────────────
+// 主游戏
+// ─────────────────────────────────────────────
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('game');
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
+    this.W = this.canvas.width;
+    this.H = this.canvas.height;
+
+    this.renderer = new SpriteRenderer(2);
+    this.background = createBackground(this.renderer, this.W, this.H);
+
+    this.keys = {};
+    this.mouse = { x: 400, y: 280 };
+    this.focus = new FocusSystem(5, 2.5);
+    this.player = new Player(400, 300);
+    this.projectiles = [];
+    this.effects = [];
+    this.damageNums = [];
+    this.statusLabels = [];
+    this.enemies = [];
+    this.score = 0;
+    this.time = 0;
+
+    this.state = 'playing'; // playing | casting | gameover | win
+    this.castingInputBuffer = '';
+    this.castingInput = false;
+    this.showCastInput = false;
+
+    this.voice = new VoiceEngine();
+    this.voice.onResult = (raw) => this.handleVoiceResult(raw);
+    this.voice.onError = (err) => {
+      console.warn('Voice error:', err);
+      // 回退到键盘输入
+      this.showCastInput = true;
+      document.getElementById('syllables-display').textContent = '麦克风不可用，请键入音节（回车确认）';
+    };
+
+    this.spawnEnemies();
+    this.bindInput();
+
+    this.castOverlay  = document.getElementById('cast-overlay');
+    this.spellPopup   = document.getElementById('spell-popup');
+    this.discoveryDiv = document.getElementById('discovery');
+    this.syllablesDisplay = document.getElementById('syllables-display');
+
+    this.lastTime = 0;
+    requestAnimationFrame(t => this.loop(t));
+  }
+
+  spawnEnemies() {
+    const positions = [
+      {x:120,y:150},{x:680,y:150},{x:120,y:450},{x:680,y:450},{x:400,y:120}
+    ];
+    const types = ['goblin','goblin','slime','golem','slime'];
+    for (let i = 0; i < positions.length; i++) {
+      this.enemies.push(new Enemy(types[i], positions[i].x, positions[i].y));
+    }
+  }
+
+  bindInput() {
+    window.addEventListener('keydown', e => {
+      this.keys[e.code] = true;
+      if (e.code === 'Space' && this.state === 'playing') {
+        e.preventDefault();
+        this.startCast();
+      }
+      if (this.state === 'casting') {
+        if (e.code === 'Enter') {
+          e.preventDefault();
+          this.finishTextInput();
+        } else if (e.code === 'Backspace') {
+          this.castingInputBuffer = this.castingInputBuffer.slice(0,-1);
+          this.updateSyllableDisplay();
+        }
+      }
+    });
+    window.addEventListener('keyup', e => { this.keys[e.code] = false; });
+    window.addEventListener('keypress', e => {
+      if (this.state === 'casting' && e.key.length === 1) {
+        this.castingInputBuffer += e.key;
+        this.updateSyllableDisplay();
+      }
+    });
+    this.canvas.addEventListener('mousemove', e => {
+      const r = this.canvas.getBoundingClientRect();
+      this.mouse.x = e.clientX - r.left;
+      this.mouse.y = e.clientY - r.top;
+    });
+    this.canvas.addEventListener('click', () => {
+      if (this.state === 'playing') this.startCast();
+    });
+  }
+
+  updateSyllableDisplay() {
+    const preview = parseSyllables(this.castingInputBuffer).map(s => SYLLABLE_MAP[s]).filter(Boolean);
+    this.syllablesDisplay.textContent = this.castingInputBuffer +
+      (preview.length ? '  →  ' + preview.join(' + ') : '');
+  }
+
+  startCast() {
+    if (this.state !== 'playing') return;
+    if (!this.focus.consume(1)) {
+      this.statusLabels.push(new StatusLabel(this.player.x, this.player.y - 30, '专注值不足', '#ff8800'));
+      return;
+    }
+    this.state = 'casting';
+    this.castingInputBuffer = '';
+    this.showCastInput = false;
+    this.castOverlay.classList.add('active');
+    this.syllablesDisplay.textContent = '';
+
+    // 尝试语音识别
+    this.voice.start();
+
+    // 3秒超时回退到键盘输入
+    this._castTimeout = setTimeout(() => {
+      if (this.state === 'casting' && !this.voice.isListening()) return;
+      this.voice.stop();
+      this.showCastInput = true;
+      this.syllablesDisplay.textContent = '请键入音节，回车确认（示例：a ka da）';
+    }, 3000);
+  }
+
+  finishTextInput() {
+    if (this.state !== 'casting') return;
+    clearTimeout(this._castTimeout);
+    this.handleVoiceResult(this.castingInputBuffer);
+  }
+
+  handleVoiceResult(raw) {
+    clearTimeout(this._castTimeout);
+    this.castOverlay.classList.remove('active');
+    this.state = 'playing';
+
+    const syllables = parseSyllables(raw);
+    const spell = buildSpell(syllables);
+    if (!spell) return; // tokens 为空时才会到这里
+
+    // 推断提示（A2 发现机制）
+    if (spell.anyInferred) {
+      this.showDiscovery(`"${raw}" → 推断为【${spell.label}】（继续探索规律）`);
+    }
+
+    // 弱点提示
+    const weakEnemy = this.enemies.find(e => e.alive && e.formWeakness === spell.form);
+    if (weakEnemy) {
+      this.showDiscovery(`${ENEMY_TYPES[weakEnemy.type].label}弱点：${FORM_LABEL[spell.form] || spell.form}！`);
+    }
+
+    this.castSpell(spell);
+    this.showSpellPopup(spell);
+  }
+
+  castSpell(spell) {
+    const dir = normalize({ x: this.mouse.x - this.player.x, y: this.mouse.y - this.player.y });
+
+    if (spell.form === 'heal') {
+      const amount = spell.level * 20 * (spell.modifier === 'power' ? 1.5 : 1);
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + amount);
+      this.damageNums.push(new DamageNumber(this.player.x, this.player.y - 20, '+' + Math.round(amount), '#44ff88'));
+      return;
+    }
+    if (spell.form === 'shield') {
+      this.player.shield = new ShieldEffect(this.player, spell);
+      return;
+    }
+    if (spell.form === 'zone') {
+      const z = new ZoneEffect(this.mouse.x, this.mouse.y, spell);
+      this.effects.push(z);
+      return;
+    }
+    if (spell.form === 'burst') {
+      const b = new BurstEffect(this.mouse.x, this.mouse.y, spell);
+      this.effects.push(b);
+      return;
+    }
+
+    // bolt / blade / null => 投射物
+    const count = spell.modifier === 'scatter' ? 3 : spell.modifier === 'chain' ? 1 : 1;
+    const spread = spell.modifier === 'scatter' ? 0.35 : 0;
+    for (let i = 0; i < count; i++) {
+      const angle = Math.atan2(dir.y, dir.x) + (i - (count-1)/2) * spread;
+      const d = { x: Math.cos(angle), y: Math.sin(angle) };
+      this.projectiles.push(new Projectile(this.player.x, this.player.y, d, spell, 'player'));
+    }
+  }
+
+  showSpellPopup(spell) {
+    const popup = this.spellPopup;
+    popup.style.color = ELEMENT_COLOR[spell.element];
+    popup.style.display = 'block';
+    popup.textContent = spell.label;
+    popup.style.animation = 'none';
+    popup.offsetHeight; // reflow
+    popup.style.animation = 'spellAnim 1.8s forwards';
+    setTimeout(() => { popup.style.display = 'none'; }, 1800);
+  }
+
+  showDiscovery(msg) {
+    this.discoveryDiv.textContent = msg;
+    this.discoveryDiv.style.display = 'block';
+    clearTimeout(this._discTimer);
+    this._discTimer = setTimeout(() => { this.discoveryDiv.style.display = 'none'; }, 2500);
+  }
+
+  update(dt) {
+    if (this.state === 'gameover' || this.state === 'win') return;
+
+    const slowMult = this.state === 'casting' ? 0.05 : 1;
+
+    this.focus.update(dt);
+    this.player.update(dt, this.keys, { w: this.W, h: this.H });
+
+    // 敌人更新
+    const livingEnemies = this.enemies.filter(e => e.alive);
+    livingEnemies.forEach(e => e.update(dt * slowMult, this.player));
+
+    // 玩家投射物碰撞
+    this.projectiles.forEach(p => {
+      p.update(dt * slowMult, livingEnemies);
+      if (!p.alive) return;
+      if (p.owner !== 'player') return;
+      livingEnemies.forEach(e => {
+        if (!e.alive) return;
+        if (dist(p, e) < p.radius + e.w/2) {
+          const dmg = p.takeDamage
+            ? 0
+            : (() => {
+                if (!p.pierce) p.alive = false;
+                const d = e.takeDamage(p.damage, p.spell.form, p.spell.element);
+                const isWeak = p.spell.form === e.formWeakness;
+                this.damageNums.push(new DamageNumber(
+                  e.x + randRange(-8,8), e.y - 20,
+                  Math.round(d), isWeak ? '#ffee22' : '#ff6644'
+                ));
+                if (isWeak) this.statusLabels.push(new StatusLabel(e.x, e.y - 35, '弱点！', '#ffee22'));
+                if (!e.alive) this.score += e.reward;
+                return d;
+              })();
+        }
+      });
+    });
+
+    // 爆炸/区域效果碰撞
+    this.effects.forEach(ef => {
+      ef.update(dt * slowMult);
+      if (ef instanceof BurstEffect && !ef.hit) {
+        livingEnemies.forEach(e => {
+          if (dist(ef, e) < ef.radius + e.w/2) {
+            const d = e.takeDamage(ef.damage, ef.spell.form, ef.spell.element);
+            this.damageNums.push(new DamageNumber(e.x, e.y - 20, Math.round(d), '#ff8844'));
+            if (!e.alive) this.score += e.reward;
+          }
+        });
+        ef.hit = true;
+      }
+      if (ef instanceof ZoneEffect && ef.tickTimer >= ef.tickInterval) {
+        ef.tickTimer = 0;
+        livingEnemies.forEach(e => {
+          if (dist(ef, e) < ef.radius) {
+            const d = e.takeDamage(ef.damage, ef.spell.form, ef.spell.element);
+            this.damageNums.push(new DamageNumber(e.x, e.y - 20, Math.round(d), '#88ffcc'));
+            if (!e.alive) this.score += e.reward;
+          }
+        });
+      }
+    });
+
+    // 敌人投射物打玩家
+    livingEnemies.forEach(e => {
+      e.projectiles.forEach(p => {
+        if (!p.alive) return;
+        if (dist(p, this.player) < p.radius + 10) {
+          p.alive = false;
+          const took = this.player.takeDamage(p.damage);
+          if (took > 0) this.damageNums.push(new DamageNumber(this.player.x, this.player.y - 20, Math.round(took), '#ff4444'));
+        }
+      });
+    });
+
+    this.projectiles = this.projectiles.filter(p => p.alive);
+    this.effects = this.effects.filter(e => e.alive);
+    this.damageNums = this.damageNums.filter(d => { d.update(dt); return d.alive; });
+    this.statusLabels = this.statusLabels.filter(s => { s.update(dt); return s.alive; });
+
+    this.time += dt;
+    if (this.player.hp <= 0) this.state = 'gameover';
+    if (this.enemies.every(e => !e.alive)) this.state = 'win';
+  }
+
+  drawUI(ctx) {
+    const W = this.W;
+    // 顶栏背景
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, 40);
+
+    // HP
+    ctx.fillStyle = '#666';
+    ctx.fillRect(10, 12, 150, 12);
+    ctx.fillStyle = this.player.hp / this.player.maxHp > 0.5 ? '#44ff44' :
+                    this.player.hp / this.player.maxHp > 0.25 ? '#ffaa00' : '#ff2222';
+    ctx.fillRect(10, 12, 150 * this.player.hp / this.player.maxHp, 12);
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`HP ${Math.ceil(this.player.hp)}/${this.player.maxHp}`, 12, 22);
+
+    // Focus 点
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('专注', 175, 22);
+    for (let i = 0; i < this.focus.max; i++) {
+      const filled = i < Math.floor(this.focus.current);
+      const partial = i < this.focus.current && !filled;
+      ctx.fillStyle = filled ? '#aaddff' : partial ? '#446688' : '#222';
+      ctx.shadowColor = filled ? '#aaddff' : 'none';
+      ctx.shadowBlur = filled ? 8 : 0;
+      ctx.beginPath();
+      ctx.arc(220 + i * 22, 18, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // 分数
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`分数: ${this.score}`, W - 10, 22);
+
+    // 敌人数
+    const alive = this.enemies.filter(e => e.alive).length;
+    ctx.fillStyle = '#888';
+    ctx.fillText(`敌人: ${alive}/${this.enemies.length}`, W - 10, 36);
+
+    // 操作提示（右下角）
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W - 210, this.H - 50, 200, 42);
+    ctx.fillStyle = '#555';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('空格/点击 = 施法', W - 8, this.H - 35);
+    ctx.fillText('WASD = 移动  鼠标 = 瞄准', W - 8, this.H - 22);
+  }
+
+  drawOverlays(ctx) {
+    if (this.state === 'gameover') {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(0, 0, this.W, this.H);
+      ctx.fillStyle = '#ff4444';
+      ctx.font = 'bold 48px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('游戏结束', this.W/2, this.H/2 - 20);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '18px monospace';
+      ctx.fillText(`最终分数: ${this.score}`, this.W/2, this.H/2 + 24);
+      ctx.fillText('刷新页面重新开始', this.W/2, this.H/2 + 52);
+    }
+    if (this.state === 'win') {
+      ctx.fillStyle = 'rgba(0,0,20,0.75)';
+      ctx.fillRect(0, 0, this.W, this.H);
+      ctx.fillStyle = '#ffee44';
+      ctx.font = 'bold 48px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('胜利！', this.W/2, this.H/2 - 20);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '18px monospace';
+      ctx.fillText(`分数: ${this.score}`, this.W/2, this.H/2 + 24);
+    }
+  }
+
+  draw() {
+    const ctx = this.ctx;
+    // 预渲染背景（像素地板+墙壁）
+    ctx.drawImage(this.background, 0, 0);
+
+    // 游戏对象
+    const t = this.time;
+    this.effects.forEach(e => e.draw(ctx));
+    this.enemies.forEach(e => e.draw(ctx, this.renderer, t));
+    this.projectiles.forEach(p => p.draw(ctx));
+    this.player.draw(ctx, this.renderer, t);
+    this.damageNums.forEach(d => d.draw(ctx));
+    this.statusLabels.forEach(s => s.draw(ctx));
+
+    // UI
+    this.drawUI(ctx);
+    this.drawOverlays(ctx);
+  }
+
+  loop(timestamp) {
+    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
+    this.lastTime = timestamp;
+    this.update(dt);
+    this.draw();
+    requestAnimationFrame(t => this.loop(t));
+  }
+}
+
+window.onload = () => { new Game(); };
+</script>
+</body>
+</html>
